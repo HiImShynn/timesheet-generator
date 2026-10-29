@@ -1,0 +1,829 @@
+<title>Timesheet Generator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one narrow column of numbered steps (the order is the real workflow), phone first. */
+:root {
+  --bg: #F2F4F6;
+  --panel: #FFFFFF;
+  --ink: #18212B;
+  --muted: #5A6573;
+  --line: #D7DDE4;
+  --accent: #1F7A5C;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E3F1EB;
+  --warn: #9A5B00;
+  --warn-soft: #FFF1D6;
+  --bad: #B3261E;
+  --field: #FFFFFF;
+  --sans: "IBM Plex Sans", "Segoe UI", Roboto, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* Excel fills used in the real workbook; preview cells keep them in both themes */
+  --x-beige: #F5F5DC; --x-blue: #ADD8E6; --x-lav: #DCD0FF; --x-pink: #FFD1DC; --x-orange: #FFC896; --x-ink: #18212B; --x-grid: #3B4450;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161C; --panel: #19212A; --ink: #E5EAF0; --muted: #9BA6B3; --line: #2C3641;
+    --accent: #45BE93; --accent-ink: #0B1A14; --accent-soft: #173229; --warn: #F2B65A; --warn-soft: #3A2C14;
+    --bad: #FF8A80; --field: #10161C; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161C; --panel: #19212A; --ink: #E5EAF0; --muted: #9BA6B3; --line: #2C3641;
+  --accent: #45BE93; --accent-ink: #0B1A14; --accent-soft: #173229; --warn: #F2B65A; --warn-soft: #3A2C14;
+  --bad: #FF8A80; --field: #10161C; color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.45; }
+.wrap {
+  max-width: 720px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+header h1 { font-size: 26px; font-weight: 700; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); }
+
+.banner { background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.banner b { color: var(--warn); }
+
+section.step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 14px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.step h2 { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.step h2 .n { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+p { margin: 0; }
+
+button, .btn {
+  font: inherit; font-weight: 500; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 14px; min-height: 44px;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+button:hover, .btn:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, .file:focus-within .btn, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button[disabled] { opacity: .5; cursor: not-allowed; }
+.chip { min-height: 38px; padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+
+input[type=text], input[type=date], input[type=number], textarea {
+  font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 10px; min-height: 44px; width: 100%; box-sizing: border-box;
+}
+label.lbl { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+
+/* 1. file */
+.file { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file .btn { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+#fileName { font-family: var(--mono); font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
+.drop { outline: 2px dashed var(--accent); outline-offset: 4px; }
+
+/* 2. dates */
+.dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 3. wages */
+.rows { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: minmax(0,1fr) 112px 92px; grid-template-areas: "who wage pay"; align-items: center; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.who { grid-area: who; min-width: 0; }
+.who b { font-weight: 600; letter-spacing: .02em; }
+.who .meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 1px 8px; }
+.wage { grid-area: wage; position: relative; }
+.wage span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.wage input { padding-left: 22px; text-align: right; font-variant-numeric: tabular-nums; }
+.wage input.bad { border-color: var(--bad); }
+.pay { grid-area: pay; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.total { display: flex; justify-content: space-between; padding-top: 10px; border-top: 2px solid var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); padding: 8px 0; }
+@media (max-width: 420px) {
+  .row { grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "who who" "wage pay"; }
+  .wage { width: 130px; }
+}
+
+/* sheet preview: looks like the Excel tab */
+.preview { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.preview-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.sheet { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px 8px 0 0; background: var(--panel); }
+table.xl { border-collapse: collapse; font-family: var(--mono); font-size: 12px; color: var(--x-ink); font-variant-numeric: tabular-nums; }
+table.xl td, table.xl th { border: 1.5px solid var(--x-grid); padding: 3px 7px; text-align: center; white-space: nowrap; background: #FFFFFF; }
+table.xl th.rh { background: var(--bg); color: var(--muted); border-color: var(--line); font-weight: 400; }
+table.xl tr.ch th { background: var(--bg); color: var(--muted); border-color: var(--line); font-weight: 400; }
+table.xl td:empty { min-width: 58px; }
+.note { font-size: 13px; background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; }
+table.xl .b { font-weight: 600; }
+.f-beige { background: var(--x-beige) !important; } .f-blue { background: var(--x-blue) !important; }
+.f-lav { background: var(--x-lav) !important; } .f-pink { background: var(--x-pink) !important; } .f-orange { background: var(--x-orange) !important; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 8px 8px; background: var(--bg); padding: 0 4px 4px; }
+.tabs button { min-height: 34px; border-radius: 0 0 6px 6px; border-top: 0; font-size: 13px; padding: 4px 12px; background: transparent; color: var(--muted); }
+.tabs button.on { background: var(--panel); color: var(--accent); font-weight: 600; border-color: var(--line); }
+
+/* 4. file name */
+.fname { display: flex; align-items: center; gap: 0; }
+.fname input { border-radius: 8px 0 0 8px; font-family: var(--mono); font-size: 14px; }
+.fname span { border: 1px solid var(--line); border-left: 0; border-radius: 0 8px 8px 0; padding: 0 10px; min-height: 44px; display: flex; align-items: center; background: var(--bg); color: var(--muted); font-family: var(--mono); font-size: 14px; }
+
+.actions { display: flex; gap: 10px; }
+.actions .primary { flex: 1; min-height: 52px; font-size: 16px; }
+#status { font-size: 14px; }
+#status.ok { color: var(--accent); font-weight: 600; }
+#status.err { color: var(--bad); font-weight: 600; }
+
+/* log */
+#log { margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px; height: 190px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#log .t { color: var(--muted); }
+#log .w { color: var(--warn); }
+
+details.settings { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; }
+details.settings summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+.settings .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-bottom: 16px; }
+.settings .wide { grid-column: 1 / -1; }
+.settings textarea { min-height: 70px; font-family: var(--mono); font-size: 14px; resize: vertical; }
+footer { color: var(--muted); font-size: 13px; text-align: center; }
+@media (max-width: 420px) { .settings .grid { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: no-preference) { button, .btn { transition: border-color .15s, background-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Timesheet Generator</h1>
+    <p>Turns the time clock's attendance log into the fortnightly Excel timesheet.</p>
+  </header>
+
+  <div class="banner" id="exampleBanner"><b>Example data.</b> These aren't your staff. Choose your <code>AGL_001.TXT</code> in step 1 to use your own punches.</div>
+
+  <section class="step" id="step1">
+    <h2><span class="n">1</span>Attendance file</h2>
+    <label class="file" for="file" id="dropZone">
+      <input type="file" id="file">
+      <span class="btn">Choose file</span>
+      <span id="fileName" class="muted">No file chosen</span>
+    </label>
+    <p id="fileInfo" class="muted small">Plug in the clock's USB stick, then pick AGL_001.TXT from it.</p>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">2</span>Dates</h2>
+    <div class="dates">
+      <label class="lbl" for="start">Start date<input type="date" id="start"></label>
+      <label class="lbl" for="end">End date<input type="date" id="end"></label>
+    </div>
+    <div class="chips">
+      <button class="chip" id="lastWeek" type="button">Last week</button>
+      <button class="chip" id="lastFortnight" type="button">Last fortnight</button>
+      <button class="chip" id="lastMonth" type="button">Last month</button>
+    </div>
+    <p id="rangeInfo" class="muted small"></p>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">3</span>Wages</h2>
+    <div class="rows" id="rows"></div>
+    <div class="total" id="total" hidden><span>Total</span><span id="totalText"></span></div>
+    <p class="note" id="checkNote" hidden>Days marked <b>to check</b> are missing a clock-in or clock-out. In the Excel file they're orange and Hours says CHECK. Ask the employee, type the missing time in the orange box, and Excel works out the hours and pay.</p>
+    <div class="preview" id="preview" hidden>
+      <div class="preview-head"><span class="small"><b>Sheet preview</b> <span class="muted">— exactly what goes in the Excel file</span></span></div>
+      <div class="sheet" id="sheet"></div>
+      <div class="tabs" id="tabs" role="tablist"></div>
+    </div>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">4</span>File name</h2>
+    <div class="fname"><input type="text" id="outName" autocomplete="off" spellcheck="false"><span>.xlsx</span></div>
+    <p class="muted small">Saved to your phone's Downloads folder (or your computer's).</p>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="generate" type="button">Generate timesheets</button>
+    <button id="clear" type="button">Clear</button>
+  </div>
+  <p id="status" role="status"></p>
+
+  <section class="step">
+    <h2>Log</h2>
+    <pre id="log" aria-live="polite"></pre>
+  </section>
+
+  <details class="settings" id="settings">
+    <summary>Settings</summary>
+    <div class="grid">
+      <label class="lbl" for="setWage">Wage for new staff ($/hour)<input type="number" id="setWage" min="0" step="0.01" inputmode="decimal"></label>
+      <label class="lbl" for="setAnchor">A Monday that starts a pay fortnight<input type="date" id="setAnchor"></label>
+      <label class="lbl" for="setDup">Ignore double taps within (seconds)<input type="number" id="setDup" min="0" step="1" inputmode="numeric"></label>
+      <label class="lbl" for="setExclude">Leave out (names or numbers, comma separated)<input type="text" id="setExclude" placeholder="e.g. ANH" autocomplete="off"></label>
+      <label class="lbl wide" for="setNames">Names for employee numbers with no name on the clock (one per line)<textarea id="setNames" placeholder="6 = BAO" spellcheck="false"></textarea></label>
+    </div>
+  </details>
+
+  <footer>Your file is read on this device only. Nothing is uploaded.</footer>
+</div>
+
+<script>
+"use strict";
+// ======================= dates (all "naive" UTC midnights) =======================
+const DAY = 86400000;
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const pad = n => String(n).padStart(2, "0");
+const utc = (y, m, d) => Date.UTC(y, m - 1, d);
+const addDays = (t, n) => t + n * DAY;
+function todayUTC() { const n = new Date(); return utc(n.getFullYear(), n.getMonth() + 1, n.getDate()); }
+function fmtDMY(t) { const d = new Date(t); return pad(d.getUTCDate()) + "-" + pad(d.getUTCMonth() + 1) + "-" + d.getUTCFullYear(); }
+function fmtISO(t) { const d = new Date(t); return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()); }
+function fmtYMD(t) { return fmtISO(t).replace(/-/g, ""); }
+function fmtHMS(t) { const d = new Date(t); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + ":" + pad(d.getUTCSeconds()); }
+function dow(t) { return DOW[new Date(t).getUTCDay()]; }
+function parseISO(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); return m ? utc(+m[1], +m[2], +m[3]) : null; }
+
+// Last pay fortnight that has fully finished before today, counted in 14-day steps from anchor.
+function latestFortnight(anchor, today) {
+  const days = Math.round((today - anchor) / DAY);
+  const from = addDays(anchor, 14 * (Math.floor(days / 14) - 1));
+  return [from, addDays(from, 13)];
+}
+function lastWeek(today) { const back = (new Date(today).getUTCDay() + 6) % 7 + 7; const f = addDays(today, -back); return [f, addDays(f, 6)]; }
+function lastMonth(today) { const d = new Date(today); const first = utc(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); const prev = new Date(addDays(first, -1)); return [utc(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1), addDays(first, -1)]; }
+
+// ======================= reading AGL_001.TXT =======================
+// Line: No  TMNo  EnNo  Name  GMNo  Mode  YYYY/MM/DD HH:MM:SS  (tabs or spaces; Name may be empty)
+const LINE = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s+(\d+)\s+(\d+)\s+(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s*$/;
+
+function decodeBytes(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder("utf-16le").decode(b.subarray(2));
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder("utf-16be").decode(b.subarray(2));
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(b); }
+  catch (e) { return new TextDecoder("windows-1252").decode(b); }
+}
+
+function readLog(text) {
+  const punches = []; let bad = 0;
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (!line.trim()) continue;
+    const m = LINE.exec(line);
+    if (!m) { if (!line.includes("EnNo")) bad++; continue; }
+    const at = Date.UTC(+m[7], +m[8] - 1, +m[9], +m[10], +m[11], +m[12]);
+    if (isNaN(at)) { bad++; continue; }
+    punches.push({ en: +m[3], name: m[4].trim(), at });
+  }
+  return { punches, bad };
+}
+
+// ======================= timesheet rules =======================
+const MAX_PUNCHES = 6; // columns D..I
+// A day that still needs checking counts 0 until the missing time is typed in (in Excel).
+const daySeconds = d => { if (d.check) return 0; let s = 0; for (let i = 0; i + 1 < MAX_PUNCHES; i += 2) if (d.slots[i] != null && d.slots[i + 1] != null) s += Math.floor((d.slots[i + 1] - d.slots[i]) / 1000); return s; };
+const workedDays = e => e.days.filter(d => !d.check).length;
+const secOfDay = t => Math.floor((t % DAY) / 1000);
+const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+// Is a lone punch closer to the usual finish time than the usual start?
+function looksLikeOut(t, ref) {
+  if (!ref.ins.length) return secOfDay(t) >= 12 * 3600;
+  const s = secOfDay(t);
+  return Math.abs(s - median(ref.outs)) < Math.abs(s - median(ref.ins));
+}
+// TEXT(...,"h:mm") keeps whole minutes, so hours are counted the same way.
+const dayHours = d => { const m = Math.floor(daySeconds(d) / 60); return Math.floor(m / 60) + (m % 60) / 60; };
+const empHours = e => e.days.reduce((s, d) => s + dayHours(d), 0);
+
+function buildTimesheets(punches, from, to, cfg) {
+  const warnings = [];
+  const names = new Map();
+  for (const p of punches) if (p.name) names.set(p.en, p.name);
+  for (const [id, n] of Object.entries(cfg.names)) names.set(+id, n);
+
+  const end = addDays(to, 1);
+  const byEmp = new Map();
+  for (const p of punches) {
+    if (p.at < from || p.at >= end) continue;
+    const day = Math.floor(p.at / DAY) * DAY;
+    if (!byEmp.has(p.en)) byEmp.set(p.en, new Map());
+    const days = byEmp.get(p.en);
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(p.at);
+  }
+  // Drop double taps, then learn usual start/finish times from complete days.
+  const all = { ins: [], outs: [] }, refs = new Map();
+  for (const [en, days] of byEmp) {
+    const ref = { ins: [], outs: [] }; refs.set(en, ref);
+    for (const [date, raw] of days) {
+      const ts = raw.sort((a, b) => a - b), kept = [ts[0]];
+      for (const t of ts.slice(1)) if (t - kept[kept.length - 1] > cfg.dup * 1000) kept.push(t);
+      days.set(date, kept);
+      if (kept.length % 2 === 0 && kept.length <= MAX_PUNCHES) {
+        for (const r of [ref, all]) { r.ins.push(secOfDay(kept[0])); r.outs.push(secOfDay(kept[kept.length - 1])); }
+      }
+    }
+  }
+  const ids = [...byEmp.keys()].sort((a, b) => {
+    const x = (names.get(a) || "").toUpperCase(), y = (names.get(b) || "").toUpperCase();
+    return x < y ? -1 : x > y ? 1 : a - b;
+  });
+
+  const emps = [];
+  for (const en of ids) {
+    const days = byEmp.get(en), name = names.get(en) || "";
+    if (!name) {
+      let n = 0; for (const ts of days.values()) n += ts.length;
+      warnings.push({ who: "", text: `Employee number ${en} has ${n} punch(es) but no name, so it was left out. Give it a name in Settings to include it.` });
+      continue;
+    }
+    if (cfg.exclude.has(name.toUpperCase()) || cfg.exclude.has(String(en))) continue;
+    const emp = { en, name, days: [] };
+    for (const date of [...days.keys()].sort((a, b) => a - b)) {
+      const ts = days.get(date);
+      const label = dow(date) + " " + fmtDMY(date);
+      const list = ts.map(t => fmtHMS(t).slice(0, 5)).join(", ");
+      const d = { date, slots: Array(MAX_PUNCHES).fill(null), missing: -1, check: false, flagged: false };
+      const say = text => warnings.push({ who: name, text: `${name} on ${label}: ${text}` });
+      if (ts.length > MAX_PUNCHES) {
+        d.slots[0] = ts[0]; d.slots[1] = ts[ts.length - 1]; d.flagged = true;
+        say(`${ts.length} punches (${list}), more than the sheet's 6 boxes. Used first in ${fmtHMS(ts[0])} and last out ${fmtHMS(ts[ts.length - 1])}; row is orange.`);
+      } else if (ts.length === 1) {
+        const ref = refs.get(en).ins.length ? refs.get(en) : all;
+        if (looksLikeOut(ts[0], ref)) { d.slots[1] = ts[0]; d.missing = 0; say(`only one punch (${fmtHMS(ts[0])}), entered as clock-out. Clock-in is missing: type it in the orange box in column D.`); }
+        else { d.slots[0] = ts[0]; d.missing = 1; say(`only one punch (${fmtHMS(ts[0])}), entered as clock-in. Clock-out is missing: type it in the orange box in column E.`); }
+        d.check = d.flagged = true;
+      } else if (ts.length % 2 === 1) {
+        ts.forEach((t, i) => d.slots[i] = t); d.missing = ts.length; d.check = d.flagged = true;
+        say(`${ts.length} punches (${list}), so a clock-in or clock-out is missing. Fix that row's times; Hours shows CHECK until it adds up.`);
+      } else {
+        ts.forEach((t, i) => d.slots[i] = t);
+      }
+      emp.days.push(d);
+    }
+    if (emp.days.length) emps.push(emp);
+  }
+  return { emps, warnings };
+}
+
+// ======================= the .xlsx file =======================
+// An .xlsx is a zip of XML text files: one per sheet (cells, formulas), one for
+// styles (fills, borders, number formats), plus a few index files.
+const FILL = { beige: "FFF5F5DC", blue: "FFADD8E6", lav: "FFDCD0FF", pink: "FFFFD1DC", orange: "FFFFC896" };
+const FMT = { general: 0, dp2: 2, time: 21, date: 164 }; // 0.00, h:mm:ss, dd-mm-yyyy
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const num = n => String(n);
+const colName = c => { let s = ""; for (c++; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + (c - 1) % 26) + s; return s; };
+const excelDate = t => Math.round(t / DAY) + 25569;
+const excelTime = t => { const d = new Date(t); return (d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds()) / 86400; };
+
+function styleSet() {
+  const list = [null], index = new Map(), fills = [];
+  return {
+    get(st) {
+      const s = { bold: !!st.bold, fill: st.fill || "", fmt: st.fmt || 0 };
+      const k = s.bold + "|" + s.fill + "|" + s.fmt;
+      if (!index.has(k)) { index.set(k, list.length); list.push(s); if (s.fill && !fills.includes(s.fill)) fills.push(s.fill); }
+      return index.get(k);
+    },
+    xml() {
+      let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+      x += '<numFmts count="1"><numFmt numFmtId="164" formatCode="dd\\-mm\\-yyyy"/></numFmts>';
+      x += '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>';
+      x += `<fills count="${fills.length + 2}"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>`;
+      for (const f of fills) x += `<fill><patternFill patternType="solid"><fgColor rgb="${f}"/><bgColor indexed="64"/></patternFill></fill>`;
+      x += "</fills>";
+      x += '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="medium"><color auto="1"/></left><right style="medium"><color auto="1"/></right><top style="medium"><color auto="1"/></top><bottom style="medium"><color auto="1"/></bottom><diagonal/></border></borders>';
+      x += '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>';
+      x += `<cellXfs count="${list.length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`;
+      for (const s of list.slice(1)) {
+        const fill = s.fill ? fills.indexOf(s.fill) + 2 : 0;
+        x += `<xf numFmtId="${s.fmt}" fontId="${s.bold ? 1 : 0}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>`;
+      }
+      return x + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    },
+  };
+}
+
+function sheetName(name, used, en) {
+  let s = name.replace(/[\[\]:*?\/\\]/g, "_").slice(0, 31);
+  if (used.has(s.toUpperCase())) s = `${s} (${en})`;
+  used.add(s.toUpperCase());
+  return s;
+}
+
+// Lays out one sheet per employee, matching the shop's existing workbook.
+// Returns plain cell grids (also used by the on-screen preview).
+function layoutSheets(emps, st) {
+  const used = new Set(), sheets = [];
+  for (const e of emps) {
+    const last = e.days.length + 1, nrows = Math.max(last, 3), NC = 15;
+    const rows = Array.from({ length: nrows }, () => Array.from({ length: NC }, () => ({ s: {}, k: "" })));
+    const set = (r, c, cell, s) => { rows[r][c] = Object.assign({ s }, cell); };
+    const T = v => ({ k: "s", v });
+    set(0, 0, T(e.name), { bold: true, fill: FILL.beige });
+    ["DoW", "Date", "0", "1", "2", "3", "4", "5"].forEach((h, i) => set(0, 1 + i, T(h), { fill: FILL.beige }));
+    ["Hours", "Hours Decimal", "Daily total"].forEach((h, i) => set(0, 9 + i, T(h), { fill: FILL.blue }));
+    set(0, 13, T("Fortnight Total:"), { bold: true });
+    set(1, 13, T("Hours Decimal Total:"), { bold: true });
+    set(1, 0, T("Wage"), { bold: true });
+    set(2, 0, { k: "n", v: e.wage }, { fmt: FMT.dp2 });
+
+    let pay = 0, hours = 0;
+    const punchFill = [FILL.lav, FILL.pink, "", FILL.pink, "", FILL.pink];
+    e.days.forEach((d, i) => {
+      const r = i + 1, R = r + 1, dayFill = d.flagged ? FILL.orange : FILL.beige;
+      set(r, 1, T(dow(d.date)), { fill: dayFill });
+      set(r, 2, { k: "n", v: excelDate(d.date), show: fmtDMY(d.date) }, { fill: dayFill, fmt: FMT.date });
+      for (let p = 0; p < MAX_PUNCHES; p++) {
+        const t = d.slots[p];
+        const cell = t != null ? { k: "n", v: excelTime(t), show: fmtHMS(t) } : { k: "" };
+        set(r, 3 + p, cell, { fill: p === d.missing ? FILL.orange : punchFill[p], fmt: FMT.time });
+      }
+      const mins = Math.floor(daySeconds(d) / 60), hDec = Math.floor(mins / 60) + (mins % 60) / 60;
+      hours += hDec; pay += hDec * e.wage;
+      // The original formulas, guarded: while a row has an odd number of times,
+      // Hours shows CHECK and counts 0; once the missing time is typed in, Excel works it out.
+      set(r, 9, { k: "F", f: `IF(MOD(COUNT(D${R}:I${R}),2)=1,"CHECK",TEXT((E${R}-D${R})+(G${R}-F${R})+(I${R}-H${R}),"h:mm"))`, v: d.check ? "CHECK" : Math.floor(mins / 60) + ":" + pad(mins % 60) }, { fill: d.check ? FILL.orange : FILL.blue });
+      set(r, 10, { k: "f", f: `IF(J${R}="CHECK",0,HOUR(J${R})+MINUTE(J${R})/60)`, v: hDec }, { fill: FILL.blue, fmt: FMT.dp2 });
+      set(r, 11, { k: "f", f: `K${R}*$A$3`, v: hDec * e.wage }, { fill: FILL.blue, fmt: FMT.dp2 });
+    });
+    set(0, 14, { k: "f", f: `SUM(L2:L${last})`, v: pay }, { fill: FILL.pink, fmt: FMT.dp2 });
+    set(1, 14, { k: "f", f: `SUM(K2:K${last})`, v: hours }, { fill: FILL.pink, fmt: FMT.dp2 });
+    sheets.push({ name: sheetName(e.name, used, e.en), rows, NC });
+  }
+  return sheets;
+}
+
+function sheetXML(sh, st, selected) {
+  let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
+  x += `<dimension ref="A1:${colName(sh.NC - 1)}${sh.rows.length}"/>`;
+  x += `<sheetViews><sheetView workbookViewId="0"${selected ? ' tabSelected="1"' : ""}/></sheetViews><sheetFormatPr defaultRowHeight="15"/>`;
+  x += "<cols>";
+  for (const [c, w] of [[1, 12], [2, 8], [3, 12], [4, 10], [11, 15], [12, 12], [13, 8], [14, 20], [15, 12]]) x += `<col min="${c}" max="${c}" width="${w}" customWidth="1"/>`;
+  x += "</cols><sheetData>";
+  sh.rows.forEach((row, r) => {
+    x += `<row r="${r + 1}">`;
+    row.forEach((c, ci) => {
+      const ref = colName(ci) + (r + 1), s = st.get(c.s);
+      if (c.k === "") x += `<c r="${ref}" s="${s}"/>`;
+      else if (c.k === "n") x += `<c r="${ref}" s="${s}"><v>${num(c.v)}</v></c>`;
+      else if (c.k === "s") x += `<c r="${ref}" s="${s}" t="inlineStr"><is><t>${esc(c.v)}</t></is></c>`;
+      else if (c.k === "f") x += `<c r="${ref}" s="${s}"><f>${esc(c.f)}</f><v>${num(c.v)}</v></c>`;
+      else if (c.k === "F") x += `<c r="${ref}" s="${s}" t="str"><f>${esc(c.f)}</f><v>${esc(c.v)}</v></c>`;
+    });
+    x += "</row>";
+  });
+  return x + '</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+}
+
+function buildXlsx(emps) {
+  const st = styleSet();
+  st.get({}); // bordered plain style first, like the Windows version
+  const sheets = layoutSheets(emps, st);
+  const files = [];
+  let ct = "", rels = "", wb = "";
+  sheets.forEach((sh, i) => {
+    ct += `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`;
+    rels += `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`;
+    wb += `<sheet name="${esc(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`;
+  });
+  const sheetFiles = sheets.map((sh, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXML(sh, st, i === 0)]);
+  files.push(["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + ct + "</Types>"]);
+  files.push(["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>']);
+  files.push(["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="0"/></bookViews><sheets>' + wb + '</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>']);
+  files.push(["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`]);
+  files.push(...sheetFiles);
+  files.push(["xl/styles.xml", st.xml()]); // last: sheets register their styles first
+  return zip(files);
+}
+
+// Minimal zip writer (files stored uncompressed — Excel reads these fine).
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  const now = new Date();
+  const dtime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const ddate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let offset = 0;
+  for (const [name, text] of files) {
+    const nb = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint16(10, dtime, true); h.setUint16(12, ddate, true); h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nb.length, true); h.setUint16(28, 0, true);
+    parts.push(new Uint8Array(h.buffer), nb, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+    c.setUint16(12, dtime, true); c.setUint16(14, ddate, true); c.setUint32(16, crc, true);
+    c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nb.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), nb);
+    offset += 30 + nb.length + data.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+  e.setUint32(12, cdSize, true); e.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(e.buffer)];
+  const out = new Uint8Array(all.reduce((s, p) => s + p.length, 0));
+  let o = 0; for (const p of all) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ======================= settings & remembered wages (this device only) =======================
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("tsg." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("tsg." + k, JSON.stringify(v)); } catch (e) { /* storage blocked: still works, just not remembered */ } },
+};
+const DEFAULTS = { wage: 20, anchor: "2026-10-12", dup: 60, exclude: "", names: "" };
+let settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
+let savedWages = store.get("wages", {});
+
+function cfg() {
+  const names = {};
+  for (const line of String(settings.names).split(/\n/)) {
+    const m = /^\s*(\d+)\s*[=:]\s*(.+?)\s*$/.exec(line);
+    if (m) names[m[1]] = m[2];
+  }
+  return {
+    names,
+    exclude: new Set(String(settings.exclude).split(",").map(s => s.trim().toUpperCase()).filter(Boolean)),
+    dup: Math.max(0, +settings.dup || 0),
+    anchor: parseISO(settings.anchor) ?? parseISO(DEFAULTS.anchor),
+    wage: +settings.wage >= 0 ? +settings.wage : 20,
+  };
+}
+
+// ======================= page state & UI =======================
+const $ = id => document.getElementById(id);
+const state = { punches: null, fileLabel: "", example: false, emps: [], warnings: [], typed: {}, tab: 0 };
+
+function log(msg, cls) {
+  const t = new Date();
+  const line = document.createElement("div");
+  const ts = document.createElement("span"); ts.className = "t"; ts.textContent = `[${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}] `;
+  const tx = document.createElement("span"); if (cls) tx.className = cls; tx.textContent = msg;
+  line.append(ts, tx); $("log").append(line); $("log").scrollTop = $("log").scrollHeight;
+}
+function status(msg, cls) { $("status").textContent = msg; $("status").className = cls || ""; }
+const money = v => "$" + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+function currentRange() {
+  const from = parseISO($("start").value), to = parseISO($("end").value);
+  if (from == null || to == null) return { err: "Pick a start and end date." };
+  if (to < from) return { err: "The end date is before the start date." };
+  return { from, to };
+}
+
+function setRange([from, to], which) {
+  $("start").value = fmtISO(from); $("end").value = fmtISO(to);
+  for (const id of ["lastWeek", "lastFortnight", "lastMonth"]) $(id).classList.toggle("on", id === which);
+  refresh();
+}
+
+function wageFor(e, c) {
+  const k = e.name.toUpperCase();
+  if (k in state.typed) return state.typed[k];
+  if (k in savedWages) return String(savedWages[k]);
+  if (String(e.en) in savedWages) return String(savedWages[String(e.en)]);
+  return String(c.wage);
+}
+const parseWage = s => { const v = Number(String(s).replace(/^\s*\$/, "").trim()); return String(s).trim() !== "" && isFinite(v) && v >= 0 ? v : null; };
+
+function refresh() {
+  const rowsEl = $("rows"); rowsEl.replaceChildren();
+  $("total").hidden = true; $("preview").hidden = true; $("checkNote").hidden = true;
+  const r = currentRange();
+  if (r.err) { $("rangeInfo").textContent = r.err; return empty(r.err); }
+  const n = Math.round((r.to - r.from) / DAY) + 1;
+  $("rangeInfo").textContent = `${n} day${n === 1 ? "" : "s"}: ${dow(r.from)} ${fmtDMY(r.from)} to ${dow(r.to)} ${fmtDMY(r.to)}`;
+  if (!state.punches) return empty("Choose the attendance file in step 1 to see who worked.");
+
+  const c = cfg();
+  const { emps, warnings } = buildTimesheets(state.punches, r.from, r.to, c);
+  state.emps = emps; state.warnings = warnings;
+  if (!emps.length) return empty(`No complete shifts between ${fmtDMY(r.from)} and ${fmtDMY(r.to)}.`);
+
+  emps.forEach((e, i) => {
+    const row = document.createElement("div"); row.className = "row";
+    const who = document.createElement("div"); who.className = "who";
+    const b = document.createElement("b"); b.textContent = e.name; who.append(b);
+    const checks = warnings.filter(w => w.who === e.name).length;
+    if (checks) { const t = document.createElement("span"); t.className = "tag"; t.textContent = `${checks} to check`; who.append(t); }
+    const meta = document.createElement("div"); meta.className = "meta";
+    const h = empHours(e);
+    const wd = workedDays(e);
+    meta.textContent = `${wd} day${wd === 1 ? "" : "s"} · ${h.toFixed(2)} hours`;
+    who.append(meta);
+
+    const wage = document.createElement("label"); wage.className = "wage"; wage.htmlFor = "wage" + i;
+    const sign = document.createElement("span"); sign.textContent = "$";
+    const inp = document.createElement("input"); inp.type = "text"; inp.inputMode = "decimal"; inp.id = "wage" + i;
+    inp.value = wageFor(e, c); inp.setAttribute("aria-label", `Hourly wage for ${e.name}`);
+    wage.append(sign, inp);
+    const pay = document.createElement("div"); pay.className = "pay";
+    const update = () => {
+      const w = parseWage(inp.value);
+      inp.classList.toggle("bad", w == null);
+      state.typed[e.name.toUpperCase()] = inp.value;
+      e.wage = w ?? 0;
+      pay.textContent = w == null ? "—" : money(h * w);
+      updateTotal();
+      if (state.tab === i) renderPreview();
+    };
+    inp.addEventListener("input", update);
+    row.append(who, wage, pay); rowsEl.append(row);
+    update();
+  });
+  $("total").hidden = false;
+  $("checkNote").hidden = !emps.some(e => e.days.some(d => d.check));
+  if (state.tab >= emps.length) state.tab = 0;
+  renderTabs(); renderPreview(); $("preview").hidden = false;
+  updateTotal();
+}
+
+function empty(text) {
+  state.emps = []; state.warnings = [];
+  const p = document.createElement("p"); p.className = "empty"; p.textContent = text; $("rows").replaceChildren(p);
+}
+
+function updateTotal() {
+  let h = 0, p = 0, ok = true;
+  for (const e of state.emps) { const eh = empHours(e); h += eh; p += eh * e.wage; }
+  document.querySelectorAll(".wage input").forEach(i => { if (i.classList.contains("bad")) ok = false; });
+  $("totalText").textContent = `${h.toFixed(2)} hours · ${ok ? money(p) : "fix wages"}`;
+}
+
+function renderTabs() {
+  const tabs = $("tabs"); tabs.replaceChildren();
+  state.emps.forEach((e, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = e.name; b.setAttribute("role", "tab");
+    b.className = i === state.tab ? "on" : ""; b.setAttribute("aria-selected", i === state.tab);
+    b.addEventListener("click", () => { state.tab = i; renderTabs(); renderPreview(); });
+    tabs.append(b);
+  });
+}
+
+function renderPreview() {
+  const e = state.emps[state.tab]; if (!e) return;
+  const sh = layoutSheets([e], styleSet())[0];
+  const fillClass = { [FILL.beige]: "f-beige", [FILL.blue]: "f-blue", [FILL.lav]: "f-lav", [FILL.pink]: "f-pink", [FILL.orange]: "f-orange" };
+  const t = document.createElement("table"); t.className = "xl";
+  const hr = document.createElement("tr"); hr.className = "ch"; hr.append(document.createElement("th"));
+  for (let c = 0; c < sh.NC; c++) { const th = document.createElement("th"); th.textContent = colName(c); hr.append(th); }
+  t.append(hr);
+  sh.rows.forEach((row, r) => {
+    const tr = document.createElement("tr");
+    const rh = document.createElement("th"); rh.className = "rh"; rh.textContent = r + 1; tr.append(rh);
+    row.forEach((c, ci) => {
+      const td = document.createElement("td");
+      const s = c.s || {};
+      if (s.fill) td.className = fillClass[s.fill];
+      if (s.bold) td.classList.add("b");
+      if (c.k === "s") td.textContent = c.v;
+      else if (c.k === "n") td.textContent = c.show ?? (s.fmt === FMT.dp2 ? c.v.toFixed(2) : c.v);
+      else if (c.k === "f") td.textContent = c.v.toFixed(2);
+      else if (c.k === "F") td.textContent = c.v;
+      tr.append(td);
+    });
+    t.append(tr);
+  });
+  $("sheet").replaceChildren(t);
+}
+
+// ---------- loading ----------
+async function loadFile(f) {
+  if (!f) return;
+  try {
+    const text = decodeBytes(await f.arrayBuffer());
+    const { punches, bad } = readLog(text);
+    if (!punches.length) throw new Error(`No clock punches found in ${f.name}. Is this the attendance log (AGL_001.TXT)?`);
+    useLog(punches, bad, f.name, false);
+  } catch (err) {
+    log(err.message, "w"); status(err.message, "err");
+  }
+}
+
+function useLog(punches, bad, label, example) {
+  state.punches = punches; state.fileLabel = label; state.example = example; state.typed = {}; state.tab = 0;
+  $("exampleBanner").hidden = !example;
+  $("fileName").textContent = label; $("fileName").classList.toggle("muted", example);
+  let first = punches[0].at, last = punches[0].at; const people = new Set();
+  for (const p of punches) { if (p.at < first) first = p.at; if (p.at > last) last = p.at; people.add(p.en); }
+  $("fileInfo").textContent = `${punches.length.toLocaleString()} punches · ${fmtDMY(first)} to ${fmtDMY(last)} · ${people.size} employee number${people.size === 1 ? "" : "s"}`;
+  if (!example) {
+    log(`Loaded ${label}: ${punches.length} punches, ${fmtDMY(first)} to ${fmtDMY(last)}, ${people.size} employee number(s).`);
+    if (bad) log(`Skipped ${bad} line(s) that were not punches.`);
+    status("");
+  }
+  $("outName").value = (example ? "Timesheets_EXAMPLE_" : "Timesheets_") + fmtYMD(todayUTC());
+  refresh();
+  const r = currentRange();
+  if (!example && !r.err && last < r.to) log(`Note: the log ends on ${fmtDMY(last)}. Export a fresh log from the clock if shifts are missing.`, "w");
+}
+
+// Example punches for three made-up staff over the last fortnight.
+function exampleLog() {
+  const [from] = latestFortnight(cfg().anchor, todayUTC());
+  let seed = 7; const rnd = n => (seed = (seed * 16807) % 2147483647) % n;
+  const staff = [[21, "MAI", [5, 6, 0, 1]], [22, "LEO", [1, 3, 4, 5]], [23, "SAM", [6, 0]]];
+  const punches = [];
+  for (let i = 0; i < 14; i++) {
+    const day = addDays(from, i), wd = new Date(day).getUTCDay();
+    for (const [en, name, days] of staff) {
+      if (!days.includes(wd)) continue;
+      const inAt = day + ((15 + rnd(2)) * 3600 + rnd(3600)) * 1000;
+      const outAt = day + (20 * 3600 + rnd(1500)) * 1000;
+      punches.push({ en, name, at: inAt });
+      if (name === "SAM" && i === 6) punches.push({ en, name, at: inAt + 3000 }); // double tap, ignored
+      if (!(name === "LEO" && i === 9)) punches.push({ en, name, at: outAt }); // forgot to clock out once
+    }
+  }
+  return punches.sort((a, b) => a.at - b.at);
+}
+
+// ---------- generate ----------
+let downloads = null;
+(async () => { try { downloads = await window.claude?.use?.("downloads"); } catch (e) { downloads = null; } })();
+
+async function generate() {
+  status("");
+  if (!state.punches) { status("Choose the attendance file first (step 1).", "err"); return; }
+  const r = currentRange(); if (r.err) { status(r.err, "err"); return; }
+  const bad = [...document.querySelectorAll(".wage input")].find(i => parseWage(i.value) == null);
+  if (bad) { status("One of the wages isn't a number. Type something like 20 or 22.50.", "err"); bad.focus(); return; }
+  if (!state.emps.length) { status(`No complete shifts between ${fmtDMY(r.from)} and ${fmtDMY(r.to)}, so there is nothing to put in a timesheet.`, "err"); return; }
+
+  let name = ($("outName").value.trim() || "Timesheets_" + fmtYMD(todayUTC())).replace(/\.xlsx$/i, "").replace(/[\\\/:*?"<>|]/g, "_");
+  const filename = name + ".xlsx";
+  const bytes = buildXlsx(state.emps);
+
+  log(`Generating timesheets for ${fmtDMY(r.from)} to ${fmtDMY(r.to)}${state.example ? " (example data)" : ""}...`);
+  let th = 0, tp = 0;
+  for (const e of state.emps) {
+    const h = empHours(e); th += h; tp += h * e.wage;
+    log(`  ${e.name.padEnd(10)} ${String(workedDays(e)).padStart(2)} days ${h.toFixed(2).padStart(7)} h  x $${e.wage} = ${money(h * e.wage)}`);
+  }
+  log(`  ${"TOTAL".padEnd(10)}         ${th.toFixed(2).padStart(7)} h            ${money(tp)}`);
+  for (const w of state.warnings) log("Check: " + w.text, "w");
+
+  if (!state.example) {
+    for (const e of state.emps) savedWages[e.name.toUpperCase()] = e.wage;
+    store.set("wages", savedWages);
+  }
+
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  if (downloads) {
+    try {
+      await downloads.save({ filename, data: blob });
+      log("Saved " + filename); status(`Saved ${filename}. Open it from Downloads in Excel or Google Sheets.`, "ok");
+    } catch (err) {
+      const code = err && err.code;
+      if (code === "declined") { log("Save cancelled."); status("Save cancelled. Tap Generate again when you're ready."); }
+      else if (code === "rate_limited") { status("A save is already waiting for your answer.", "err"); }
+      else { log("Could not save: " + (err && err.message || code), "w"); status("This view can't save files. Open timesheet-generator.html in Chrome or Edge and try again.", "err"); }
+    }
+  } else {
+    // Outside the Claude viewer (e.g. the page saved as a file): a normal browser download.
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    log("Saved " + filename); status(`Saved ${filename} to Downloads. Open it in Excel or Google Sheets.`, "ok");
+  }
+}
+
+function clearAll() {
+  state.typed = {};
+  $("file").value = "";
+  $("log").replaceChildren();
+  status("");
+  setRange(latestFortnight(cfg().anchor, todayUTC()), "lastFortnight");
+  useLog(exampleLog(), 0, "Example (no file chosen)", true);
+  log("Cleared. Choose an attendance file to begin.");
+}
+
+// ---------- wiring ----------
+$("file").addEventListener("change", e => loadFile(e.target.files[0]));
+const dz = $("dropZone");
+["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drop"); }));
+["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drop"); }));
+dz.addEventListener("drop", e => loadFile(e.dataTransfer.files[0]));
+$("start").addEventListener("change", () => { ["lastWeek", "lastFortnight", "lastMonth"].forEach(id => $(id).classList.remove("on")); refresh(); });
+$("end").addEventListener("change", () => { ["lastWeek", "lastFortnight", "lastMonth"].forEach(id => $(id).classList.remove("on")); refresh(); });
+$("lastWeek").addEventListener("click", () => setRange(lastWeek(todayUTC()), "lastWeek"));
+$("lastFortnight").addEventListener("click", () => setRange(latestFortnight(cfg().anchor, todayUTC()), "lastFortnight"));
+$("lastMonth").addEventListener("click", () => setRange(lastMonth(todayUTC()), "lastMonth"));
+$("generate").addEventListener("click", generate);
+$("clear").addEventListener("click", clearAll);
+
+const settingFields = { setWage: "wage", setAnchor: "anchor", setDup: "dup", setExclude: "exclude", setNames: "names" };
+for (const [id, key] of Object.entries(settingFields)) {
+  $(id).value = settings[key];
+  $(id).addEventListener("change", () => { settings[key] = $(id).value; store.set("settings", settings); refresh(); });
+}
+
+// Start: last fortnight, with example data until a real file is chosen.
+setRange(latestFortnight(cfg().anchor, todayUTC()), "lastFortnight");
+useLog(exampleLog(), 0, "Example (no file chosen)", true);
+log("Welcome to Timesheet Generator!");
+log("Showing example data. Choose your attendance file to begin.");
+</script>
